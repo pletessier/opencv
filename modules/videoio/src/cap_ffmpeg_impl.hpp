@@ -243,6 +243,7 @@ struct CvCapture_FFMPEG
     void init();
 
     void    seek(int64_t frame_number);
+    void    seek_not_accurate(int64_t frame_number);
     void    seek(double sec);
     bool    slowSeek( int framenumber );
 
@@ -1001,6 +1002,66 @@ void CvCapture_FFMPEG::seek(int64_t _frame_number)
     }
 }
 
+void CvCapture_FFMPEG::seek_not_accurate(int64_t _frame_number)
+{
+    _frame_number = std::min(_frame_number, get_total_frames());
+    int delta = 16;
+
+    // if we have not grabbed a single frame before first seek, let's read the first frame
+    // and get some valuable information during the process
+    if( first_frame_number < 0 && get_total_frames() > 1 )
+        grabFrame();
+
+    /*for(;;)
+    {*/
+        int64_t _frame_number_temp = std::max(_frame_number-delta, (int64_t)0);
+        double sec = (double)_frame_number_temp / get_fps();
+        int64_t time_stamp = ic->streams[video_stream]->start_time;
+        double  time_base  = r2d(ic->streams[video_stream]->time_base);
+        time_stamp += (int64_t)(sec / time_base + 0.5);
+        if (get_total_frames() > 1) av_seek_frame(ic, video_stream, time_stamp, AVSEEK_FLAG_BACKWARD);
+        avcodec_flush_buffers(ic->streams[video_stream]->codec);
+        grabFrame();
+
+        /*if( _frame_number > 0 )
+        {
+            grabFrame();
+
+            if( _frame_number > 1 )
+            {
+                frame_number = dts_to_frame_number(picture_pts) - first_frame_number;
+                //printf("_frame_number = %d, frame_number = %d, delta = %d\n",
+                //       (int)_frame_number, (int)frame_number, delta);
+
+                if( frame_number < 0 || frame_number > _frame_number-1 )
+                {
+                    if( _frame_number_temp == 0 || delta >= INT_MAX/4 )
+                        break;
+                    delta = delta < 16 ? delta*2 : delta*3/2;
+                    continue;
+                }
+                while( frame_number < _frame_number-1 )
+                {
+                    if(!grabFrame())
+                        break;
+                }
+                frame_number++;
+                break;
+            }
+            else
+            {
+                frame_number = 1;
+                break;
+            }
+        }
+        else
+        {
+            frame_number = 0;
+            break;
+        }*/
+    //}
+}
+
 void CvCapture_FFMPEG::seek(double sec)
 {
     seek((int64_t)(sec * get_fps() + 0.5));
@@ -1014,12 +1075,17 @@ bool CvCapture_FFMPEG::setProperty( int property_id, double value )
     {
     case CV_FFMPEG_CAP_PROP_POS_MSEC:
     case CV_FFMPEG_CAP_PROP_POS_FRAMES:
+    case CV_FFMPEG_CAP_PROP_POS_FRAMES_NOT_ACCURATE:
     case CV_FFMPEG_CAP_PROP_POS_AVI_RATIO:
         {
             switch( property_id )
             {
             case CV_FFMPEG_CAP_PROP_POS_FRAMES:
                 seek((int64_t)value);
+                break;
+
+            case CV_FFMPEG_CAP_PROP_POS_FRAMES_NOT_ACCURATE:
+                seek_not_accurate((int64_t)value);
                 break;
 
             case CV_FFMPEG_CAP_PROP_POS_MSEC:
